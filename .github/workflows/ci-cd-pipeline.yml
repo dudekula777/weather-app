@@ -1,20 +1,18 @@
 name: CI/CD Pipeline
 
-# triggers
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
 
-# minimal permissions (allow GHCR push via secret PAT)
 permissions:
   contents: read
   packages: write
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}   # owner/repo
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   # -------------------------
@@ -70,7 +68,6 @@ jobs:
     needs: code-quality
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
 
-    # expose job output for deploy job
     outputs:
       image_tag: ${{ steps.set_tag.outputs.image_tag }}
 
@@ -88,7 +85,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT }}
 
-      - name: Extract metadata for Docker (tags/labels)
+      - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -97,16 +94,12 @@ jobs:
             type=sha
             type=ref,event=branch
 
-      - name: Set image tag (job step output)
+      - name: Set image tag
         id: set_tag
         run: |
           echo "image_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
 
-      - name: Print image tag (safe)
-        run: echo "Docker image tag is ${{ steps.set_tag.outputs.image_tag }}"
-
       - name: Build and push Docker image
-        id: docker_build
         uses: docker/build-push-action@v4
         with:
           context: .
@@ -114,9 +107,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Show pushed tags (safe)
-        run: |
-          echo "Tags pushed: ${{ steps.meta.outputs.tags }}"
+      - name: Show pushed tags
+        run: echo "Tags pushed: ${{ steps.meta.outputs.tags }}"
 
   # -------------------------
   # Deploy to Kubernetes
@@ -140,10 +132,16 @@ jobs:
       - name: Terraform Init
         run: terraform init
         working-directory: ./terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       - name: Terraform Validate
         run: terraform validate
         working-directory: ./terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       - name: Terraform Plan
         run: terraform plan -out=tfplan
@@ -155,15 +153,14 @@ jobs:
       - name: Terraform Apply and output instance IP
         id: tf_apply
         run: |
-          terraform apply -auto-approve
-          # note: make sure your terraform outputs a variable named `instance_public_ip`
+          terraform apply -auto-approve tfplan
           echo "instance_public_ip=$(terraform output -raw instance_public_ip)" >> $GITHUB_OUTPUT
         working-directory: ./terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Configure Kubernetes (copy kubeconfig from EC2)
+      - name: Configure Kubernetes
         env:
           TF_INSTANCE_IP: ${{ steps.tf_apply.outputs.instance_public_ip }}
         run: |
@@ -171,17 +168,12 @@ jobs:
           scp -o StrictHostKeyChecking=no -i "${{ secrets.SSH_PRIVATE_KEY }}" \
             ec2-user@"$TF_INSTANCE_IP":~/.kube/config ~/.kube/config
 
-      - name: Set kubectl context (optional)
-        run: kubectl config current-context
-
-      - name: Deploy to Kubernetes (use job output image tag)
+      - name: Deploy to Kubernetes
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          echo "Deploying image: $IMAGE_TAG"
           kubectl set image deployment/weather-app-deployment \
-            weather-app=$IMAGE_TAG \
-            -n weather-app
+            weather-app=$IMAGE_TAG -n weather-app
           kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
 
       - name: Verify service
