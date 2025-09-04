@@ -43,6 +43,7 @@ jobs:
       with:
         args: >
             -Dsonar.projectKey=weather-app
+            -Dsonar.organization=dudekula777
             -D"sonar.projectName=Weather App"
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
             
