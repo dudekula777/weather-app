@@ -42,7 +42,7 @@ jobs:
         SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       with:
         args: >
-            -Dsonar.projectKey=weather-app
+            -Dsonar.projectKey=dudekula777_weather-app
             -Dsonar.organization=dudekula777
             -D"sonar.projectName=weather-app"
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
