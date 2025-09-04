@@ -1,57 +1,31 @@
-provider "aws" {
-  region = "us-east-1"
-}
-
 terraform {
-    required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 4.0"
-    }
-  }
+  required_version = ">= 1.5.0"
 
   backend "s3" {
-    backend "s3" {
-    bucket        = "my-terraform-state"
-    key           = "terraform.tfstate"
-    region        = "us-east-1"
-    use_lockfile  = true
+    bucket         = "weather-app-s3-buscket"
+    key            = "weather-app/terraform.tfstate"
+    region         = "ap-south-1"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
   }
 }
 
+provider "aws" {
+  region = "ap-south-1"
+}
 
 resource "aws_instance" "minikube" {
-  ami           = "ami-0c55b159cbfafe1f0"
-  instance_type = "t2.micro"
+  ami           = "ami-0c02fb55956c7d316" # Example Amazon Linux 2
+  instance_type = "t3.medium"
 
   tags = {
-    Name = "minikube"
-  }
-
-  provisioner "local-exec" {
-    command = <<EOT
-      cat <<EOF | kubectl apply -f -
-      apiVersion: v1
-      kind: Service
-      metadata:
-        name: weather-app-service
-        namespace: weather-app
-      spec:
-        selector:
-          app: weather-app
-        ports:
-          - protocol: TCP
-            port: 80
-            targetPort: 3000
-      EOF
-    EOT
+    Name = "minikube-server"
   }
 }
 
-
 resource "aws_security_group" "minikube_sg" {
-  name        = "minikube-security-group"
-  description = "Allow SSH, HTTP, HTTPS and Kubernetes ports"
+  name        = "minikube-sg"
+  description = "Allow Kubernetes traffic"
 
   ingress {
     from_port   = 22
@@ -61,29 +35,8 @@ resource "aws_security_group" "minikube_sg" {
   }
 
   ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 3000
-    to_port     = 3000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 6443
-    to_port     = 6443
+    from_port   = 30000
+    to_port     = 32767
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -97,6 +50,5 @@ resource "aws_security_group" "minikube_sg" {
 }
 
 output "instance_public_ip" {
-  description = "Public IP address of the EC2 instance"
-  value       = aws_instance.minikube.public_ip
+  value = aws_instance.minikube.public_ip
 }
