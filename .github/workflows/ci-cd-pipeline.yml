@@ -87,12 +87,19 @@ jobs:
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
 
+    - name: Set Docker image tag
+      run: echo "IMAGE_TAG=ghcr.io/dudekula777/weather-app:sha-${{ github.sha }}" >> $GITHUB_ENV
+
+    - name: Print Docker image tag
+      run: echo "Using image tag: $IMAGE_TAG"
+
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v4
       with:
         context: .
         push: true
-        tags: ghcr.io/dudekula777/weather-app:latest
+        tags: ${{ env.IMAGE_TAG }}
 
     - name: Docker image digest
       run: echo ${{ steps.meta.outputs.tags }}
