@@ -93,7 +93,6 @@ jobs:
     - name: Print Docker image tag
       run: echo "Using image tag: $IMAGE_TAG"
 
-
     - name: Build and push Docker image
       uses: docker/build-push-action@v4
       with:
