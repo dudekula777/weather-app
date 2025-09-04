@@ -10,12 +10,24 @@ terraform {
 }
 
 provider "aws" {
-  region = "ap-south-1"
+  region = "us-east-1"
+}
+
+# Find the latest Ubuntu 20.04 AMI in the current region
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical (Ubuntu)
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-20.04-amd64-server-*"]
+  }
 }
 
 resource "aws_instance" "minikube" {
-  ami           = "ami-0360c520857e3138f" # ✅ example for ap-south-1 (Ubuntu 20.04)
+  ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.medium"
+
   tags = {
     Name = "minikube-server"
   }
