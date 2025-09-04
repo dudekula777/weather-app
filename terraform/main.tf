@@ -11,11 +11,11 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "weather-app-s3-buscket"
-    key            = "env/dev/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-locks"
-    encrypt        = true
+    backend "s3" {
+    bucket        = "my-terraform-state"
+    key           = "terraform.tfstate"
+    region        = "us-east-1"
+    use_lockfile  = true
   }
 }
 
