@@ -1,28 +1,15 @@
-const axios = require('axios');
-const config = require('../../config/' + (process.env.NODE_ENV || 'development') + '.json');
+const path = require('path');
+const fs = require('fs');
 
-class WeatherService {
-  constructor() {
-    this.apiKey = process.env.OPENWEATHER_API_KEY || config.openWeatherApiKey;
-    this.baseUrl = 'https://api.openweathermap.org/data/2.5';
-  }
+const env = process.env.NODE_ENV || 'development';
+const configPath = path.join(__dirname, `../../config/${env}.json`);
 
-  async getWeatherByCity(city) {
-    try {
-      const response = await axios.get(
-        `${this.baseUrl}/weather?q=${city}&appid=${this.apiKey}&units=metric`
-      );
-      return {
-        city: response.data.name,
-        temperature: response.data.main.temp,
-        description: response.data.weather[0].description,
-        humidity: response.data.main.humidity,
-        windSpeed: response.data.wind.speed
-      };
-    } catch (error) {
-      throw new Error(`Failed to fetch weather data: ${error.response?.data?.message || error.message}`);
-    }
-  }
+let config = {};
+if (fs.existsSync(configPath)) {
+  config = require(configPath);
+} else {
+  console.warn(`⚠️ Config file not found: ${configPath}. Using defaults.`);
+  config = { apiKey: "dummy-key", apiUrl: "http://localhost:3000" };
 }
 
-module.exports = new WeatherService();
+module.exports = config;
