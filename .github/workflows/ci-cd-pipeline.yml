@@ -45,6 +45,9 @@ jobs:
           -Dsonar.projectKey=weather-app
           -Dsonar.projectName=Weather App
           -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+    - name: Run SonarQube Scan
+      run: sonar-scanner
+
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
