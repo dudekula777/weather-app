@@ -91,11 +91,8 @@ jobs:
       uses: docker/build-push-action@v4
       with:
         context: .
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        push: true
+        tags: ghcr.io/dudekula777/weather-app:main
 
     - name: Docker image digest
       run: echo ${{ steps.meta.outputs.tags }}
