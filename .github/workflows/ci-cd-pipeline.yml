@@ -92,15 +92,16 @@ jobs:
 
     - name: Print image tag
       run: echo "Docker image tag is $IMAGE_TAG"
-
+    
     - name: Build and push Docker image
       uses: docker/build-push-action@v4
       with:
-        context: .
-        push: true
-        tags: |
-          ghcr.io/dudekula777/weather-app:main
-          ${{ env.IMAGE_TAG }}
+       context: .
+       push: true
+       tags: |
+         ghcr.io/dudekula777/weather-app:main 
+         
+
 
     - name: Docker image digest
       run: echo ${{ steps.meta.outputs.tags }}
