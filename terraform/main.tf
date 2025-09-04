@@ -14,9 +14,8 @@ provider "aws" {
 }
 
 resource "aws_instance" "minikube" {
-  ami           = "ami-0c02fb55956c7d316" # Example Amazon Linux 2
+  ami           = "ami-0360c520857e3138f" # ✅ example for ap-south-1 (Ubuntu 20.04)
   instance_type = "t3.medium"
-
   tags = {
     Name = "minikube-server"
   }
