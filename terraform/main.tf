@@ -12,14 +12,17 @@ provider "aws" {
   region = "us-east-1"
 }
 
-variable "public_key" {
-  type = string
-  default = file("~/.ssh/my-ec2-key.pub")  # path to your public key
+# Pass the path as a string variable
+variable "public_key_path" {
+  type        = string
+  description = "Path to your public key"
+  default     = "~/.ssh/my-ec2-key.pub" # update path if needed
 }
 
+# Use file() **inside the resource**
 resource "aws_key_pair" "my_key" {
   key_name   = "my-ec2-key"
-  public_key = var.public_key
+  public_key = file(var.public_key_path)
 }
 
 data "aws_ami" "ubuntu" {
@@ -73,4 +76,3 @@ output "instance_public_ip" {
   value       = aws_instance.minikube.public_ip
   description = "Public IP of the Minikube EC2 instance"
 }
-
