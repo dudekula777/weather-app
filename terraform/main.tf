@@ -25,7 +25,7 @@ data "aws_ami" "ubuntu" {
 resource "aws_instance" "minikube" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.medium"
-
+  key_name = "my-ec2-key"
   tags = {
     Name = "minikube-server"
   }
