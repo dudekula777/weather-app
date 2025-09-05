@@ -10,17 +10,15 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region = "us-east-1"  # or whichever region you want
 }
 
-# Find the latest Ubuntu 20.04 AMI in the current region
 data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical (Ubuntu)
-
+  owners      = ["099720109477"] # Ubuntu official owner
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-20.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
   }
 }
 
