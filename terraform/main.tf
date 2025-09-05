@@ -16,19 +16,13 @@ variable "public_key" {
   type        = string
   description = "Public key content for EC2 key pair"
 }
+variable "ubuntu_ami" {
+  default = "ami-0fb0b230890ccd1e6" # Ubuntu 20.04 LTS in us-east-1
+  
+}
 resource "aws_key_pair" "my_key" {
   key_name   = "my-ec2-key"
   public_key = var.public_key
-}
-
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Ubuntu official owner
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
-  }
 }
 
 resource "aws_security_group" "minikube_sg" {
@@ -57,8 +51,9 @@ resource "aws_security_group" "minikube_sg" {
   }
 }
 
+# EC2 instance for Minikube
 resource "aws_instance" "minikube" {
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = var.ubuntu_ami
   instance_type          = "t3.medium"
   key_name               = aws_key_pair.my_key.key_name
   vpc_security_group_ids = [aws_security_group.minikube_sg.id]
@@ -68,6 +63,7 @@ resource "aws_instance" "minikube" {
   }
 }
 
+# Output the public IP of the EC2 instance
 output "instance_public_ip" {
   value       = aws_instance.minikube.public_ip
   description = "Public IP of the Minikube EC2 instance"
