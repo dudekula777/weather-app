@@ -12,10 +12,14 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# Optional: create key pair in AWS
+variable "public_key" {
+  type = string
+  default = file("~/.ssh/my-ec2-key.pub")  # path to your public key
+}
+
 resource "aws_key_pair" "my_key" {
   key_name   = "my-ec2-key"
-  public_key = file("~/.ssh/my-ec2-key.pem.pub") # replace with your public key path
+  public_key = var.public_key
 }
 
 data "aws_ami" "ubuntu" {
@@ -69,3 +73,4 @@ output "instance_public_ip" {
   value       = aws_instance.minikube.public_ip
   description = "Public IP of the Minikube EC2 instance"
 }
+
