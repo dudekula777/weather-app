@@ -15,7 +15,7 @@ provider "aws" {
 # Optional: create key pair in AWS
 resource "aws_key_pair" "my_key" {
   key_name   = "my-ec2-key"
-  public_key = file("~/.ssh/id_rsa.pub") # replace with your public key path
+  public_key = file("~/.ssh/my-ec2-key.pem.pub") # replace with your public key path
 }
 
 data "aws_ami" "ubuntu" {
