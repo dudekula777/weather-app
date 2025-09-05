@@ -165,6 +165,10 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: SSH into EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@${{ steps.terraform.outputs.instance_public_ip }} \
+          'echo "Connected successfully!" && hostname && uptime'
 
       - name: Configure Kubernetes (copy kubeconfig from EC2)
         env:
