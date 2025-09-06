@@ -19,17 +19,30 @@ jobs:
   # 1. Code Quality & Testing
   # -------------------------
   code-quality:
+    name: Code Quality and Testing
     runs-on: ubuntu-latest
     environment: development
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
           cache: 'npm'
-      - run: npm ci
-      - run: npm run test:coverage
-      - uses: SonarSource/sonarqube-scan-action@master
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -39,7 +52,9 @@ jobs:
             -Dsonar.organization=dudekula777
             -Dsonar.projectName=weather-app
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: coverage/
@@ -48,69 +63,93 @@ jobs:
   # 2. Build & Push Docker Image
   # -------------------------
   build-and-push:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
     needs: code-quality
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+
     outputs:
       image_tag: ${{ steps.set_tag.outputs.image_tag }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v2
-      - uses: docker/login-action@v2
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v2
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT }}
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha
-            type=ref,event=branch
+
       - id: set_tag
-        run: echo "image_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
-      - uses: docker/build-push-action@v4
+        run: |
+          echo "image_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.set_tag.outputs.image_tag }}
 
   # -------------------------
   # 3. Deploy to Kubernetes
   # -------------------------
   deploy:
+    name: Deploy to Kubernetes
     runs-on: ubuntu-latest
     needs: build-and-push
     if: github.ref == 'refs/heads/main'
     environment: production
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v2
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.6.0
 
       - name: Terraform Init
-        run: terraform init -input=false
+        working-directory: ./infra/terraform
+        run: terraform init
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
+
+      - name: Terraform Validate
+        working-directory: ./infra/terraform
+        run: terraform validate
+
+      - name: Terraform Plan
         working-directory: ./infra/terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
+          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
+        run: terraform plan -out=tfplan
 
-      - name: Terraform Apply & Capture IP
+      - name: Terraform Apply & Capture EC2 IP
         working-directory: ./infra/terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           terraform apply -auto-approve -input=false
-          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
+          IP=$(terraform output -raw instance_public_ip)
           echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
           echo "✅ EC2 Public IP: $IP"
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-1
 
       - name: Setup SSH
         run: |
@@ -118,36 +157,42 @@ jobs:
           echo "${{ secrets.EC2_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/my-ec2-key.pem
           chmod 600 ~/.ssh/my-ec2-key.pem
 
-      - name: Test SSH
-        run: ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP "echo 'SSH OK' && hostname && uptime"
+      - name: Test SSH Connection
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
+              "echo 'SSH connection successful!' && hostname && uptime"
 
-      - name: Setup kubeconfig
+      - name: Configure Kubernetes (copy kubeconfig from EC2)
         run: |
           mkdir -p ~/.kube
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP:~/.kube/config ~/.kube/config
-
-      - name: Ensure namespace
-        run: kubectl create ns weather-app || true
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
+            ubuntu@$INSTANCE_IP:~/.kube/config ~/.kube/config
+          chmod 600 ~/.kube/config
 
       - name: Deploy to Kubernetes
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          kubectl set image deployment/weather-app-deployment weather-app=$IMAGE_TAG -n weather-app
-          kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
+          echo "Deploying image: $IMAGE_TAG"
+          kubectl set image deployment/weather-app-deployment \
+            weather-app=$IMAGE_TAG \
+            -n weather-app
+          kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=180s
           kubectl get svc -n weather-app
 
   # -------------------------
   # 4. Notifications
   # -------------------------
   notify:
+    name: Notifications
     runs-on: ubuntu-latest
     needs: [code-quality, build-and-push, deploy]
     if: always()
+
     steps:
-      - uses: 8398a7/action-slack@v4
+      - name: Send Slack notification
+        uses: 8398a7/action-slack@v4
         with:
           status: ${{ job.status }}
           channel: '#ci-cd-notifications'
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
