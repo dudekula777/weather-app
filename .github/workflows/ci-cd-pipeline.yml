@@ -89,28 +89,23 @@ jobs:
   # -------------------------
   # Deploy to Kubernetes
   # -------------------------
+
   deploy:
     runs-on: ubuntu-latest
-    needs: build-and-push
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      # Checkout code
+      - uses: actions/checkout@v3
 
-      # Setup Terraform
-      - uses: hashicorp/setup-terraform@v2
+      # Setup AWS credentials for Terraform
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          terraform_version: 1.6.0
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-      - name: Terraform Init
-        run: terraform init
-        working-directory: ./terraform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-
-      # Step 1: Run Terraform & capture EC2 IP
-      - name: Terraform Apply & Capture IP
+      # Terraform apply and capture IP
+      - name: Terraform Apply & Capture EC2 IP
         run: |
           terraform init
           terraform apply -auto-approve
@@ -118,40 +113,42 @@ jobs:
           echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
           echo "✅ EC2 Public IP: $IP"
         working-directory: ./terraform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
 
-      # Step 2: SSH into EC2 using saved IP
+      # Add EC2 private key
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
+          chmod 600 ~/.ssh/my-ec2-key.pem
+
+      # Test SSH connectivity
       - name: SSH into EC2
         run: |
           echo "Connecting to $INSTANCE_IP..."
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
             "echo 'SSH connection successful!' && hostname && uptime"
 
+      # Copy kubeconfig from EC2
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
+            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sed -i "s/127.0.0.1/$INSTANCE_IP/" ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl config view
+          kubectl config current-context
 
-            # Copy kubeconfig
-            - name: Setup kubeconfig
-              run: |
-                mkdir -p ~/.kube
-                scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
-                  ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml ~/.kube/config
-                sed -i "s/127.0.0.1/$INSTANCE_IP/" ~/.kube/config
-                chmod 600 ~/.kube/config
-                kubectl config view
-                kubectl config current-context
+      # Deploy to Kubernetes
+      - name: Deploy to Kubernetes
+        env:
+          IMAGE_TAG: ghcr.io/dudekula777/weather-app:${{ github.sha }}
+        run: |
+          kubectl set image deployment/weather-app-deployment \
+            weather-app=$IMAGE_TAG -n weather-app
+          kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
+          kubectl get svc -n weather-app
 
-            # Deploy Docker image to Kubernetes
-            - name: Deploy to Kubernetes
-              env:
-                IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-              run: |
-                kubectl set image deployment/weather-app-deployment \
-                  weather-app=$IMAGE_TAG -n weather-app
-                kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
-                kubectl get svc -n weather-app
 
   # -------------------------
   # Notifications
