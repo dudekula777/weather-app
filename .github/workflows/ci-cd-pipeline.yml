@@ -140,26 +140,6 @@ jobs:
         env:
           INSTANCE_IP: ${{ env.INSTANCE_IP }}
 
-      # 4️⃣ Copy kubeconfig from EC2
-      - name: Setup kubeconfig
-        run: |
-          echo "Using INSTANCE_IP=$INSTANCE_IP"
-          KUBECONFIG_DIR="$HOME/.kube"
-          mkdir -p "$KUBECONFIG_DIR"
-          KUBECONFIG_PATH="$KUBECONFIG_DIR/config"
-
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
-            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH"
-
-          sed -i "s/127.0.0.1/$INSTANCE_IP/" "$KUBECONFIG_PATH"
-          chmod 600 "$KUBECONFIG_PATH"
-
-          kubectl --kubeconfig "$KUBECONFIG_PATH" config current-context
-        env:
-          INSTANCE_IP: ${{ env.INSTANCE_IP }}
-
-
-
       # Deploy app to Kubernetes
       - name: Deploy to Kubernetes
         env:
