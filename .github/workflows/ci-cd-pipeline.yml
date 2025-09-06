@@ -159,8 +159,8 @@ jobs:
         id: tf_apply
         run: |
           terraform apply -auto-approve
-          # note: make sure your terraform outputs a variable named `instance_public_ip`
-          echo "INSTANCE_IP=$(terraform output -raw instance_public_ip)" >> $GITHUB_ENV
+          IP=$(terraform output -raw instance_public_ip | tr -d '\n')
+          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
         working-directory: ./terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
