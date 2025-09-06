@@ -155,13 +155,12 @@ jobs:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - name: Terraform Apply and export IP
+    - name: Terraform Apply and Export IP
       id: tf_apply
       run: |
         terraform apply -auto-approve
         IP=$(terraform output -raw instance_public_ip | tr -d '\n')
         echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
-        echo "instance_ip=$IP" >> $GITHUB_OUTPUT
         echo "Public IP is: $IP"
       working-directory: ./terraform
       env:
@@ -176,8 +175,6 @@ jobs:
         chmod 600 ~/.ssh/my-ec2-key.pem
 
     - name: SSH into EC2
-      env:
-        INSTANCE_IP: ${{ env.INSTANCE_IP }}
       run: |
         echo "Connecting to $INSTANCE_IP..."
         ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
@@ -204,6 +201,7 @@ jobs:
 
     - name: Verify service
       run: kubectl get svc -n weather-app
+
 
 
   # -------------------------
