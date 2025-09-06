@@ -146,8 +146,8 @@ jobs:
           
       - name: Terraform Validate
         run: terraform validate
-        working-directory: ./terraform
-
+        working-directory: ./infra/terraform
+        
       - name: Terraform Plan
         run: terraform plan -out=tfplan
         working-directory: ./infra/terraform
