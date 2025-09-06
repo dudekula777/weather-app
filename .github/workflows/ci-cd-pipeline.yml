@@ -15,244 +15,101 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # -------------------------
-  # 1. Code Quality & Testing
-  # -------------------------
+  # 1. Code Quality
   code-quality:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v3
         with:
-          node-version: '18'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests with coverage
-        run: npm run test:coverage
-
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@master
+          node-version: 18
+      - run: npm ci
+      - run: npm run test:coverage
+      - uses: SonarSource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.projectKey=dudekula777_weather-app
-            -Dsonar.organization=dudekula777
-            -Dsonar.projectName=weather-app
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: coverage/
 
-  # -------------------------
-  # 2. Build & Push Docker Image
-  # -------------------------
-  build-and-push:
+  # 2. Build & Push Docker
+  build:
     runs-on: ubuntu-latest
     needs: code-quality
     outputs:
-      image_tag: ${{ steps.set_tag.outputs.image_tag }}
+      image_tag: ${{ steps.tag.outputs.image_tag }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v2
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v2
+      - uses: docker/login-action@v2
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT }}
-
-      - id: set_tag
-        run: |
-          # short SHA tag used as job output for deploy
-          TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA:0:7}"
-          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v4
+      - id: tag
+        run: echo "image_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+      - uses: docker/build-push-action@v4
         with:
-          context: .
           push: true
-          tags: ${{ steps.set_tag.outputs.image_tag }}
+          tags: ${{ steps.tag.outputs.image_tag }}
 
-  # -------------------------
-  # 3. Deploy to Kubernetes
-  # -------------------------
+  # 3. Deploy
   deploy:
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: build
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Install Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.6.0
-
-      # Configure AWS credentials (used by Terraform)
-      # Required secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Terraform apply + capture EC2 public IP
-      # Make sure your terraform files are in infra/terraform (adjust if different)
-      - name: Terraform Apply & Capture EC2 IP
+      - name: Terraform Apply
         working-directory: ./infra/terraform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-1
-          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}   # public key contents (.pub)
         run: |
-          set -euo pipefail
-          echo "Initializing Terraform..."
-          terraform init -input=false
-          echo "Applying Terraform..."
-          terraform apply -auto-approve -input=false
-          echo "Reading instance_public_ip from Terraform output..."
-          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
-          if [[ -z "$IP" ]]; then
-            echo "ERROR: instance_public_ip is empty"
-            exit 1
-          fi
-          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
-          echo "✅ EC2 Public IP: $IP"
+          terraform init -no-color
+          terraform apply -auto-approve -no-color
+          echo "INSTANCE_IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')" >> $GITHUB_ENV
 
-      # Write SSH private key (secret) to runner
-      # Required secret: EC2_PRIVATE_KEY (the private key PEM)
-      - name: Setup SSH key
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
-          chmod 600 ~/.ssh/my-ec2-key.pem
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
 
-      # Wait for SSH to become available (retry loop)
-      - name: Wait for SSH
-        env:
-          INSTANCE_IP: ${{ env.INSTANCE_IP }}
+      - name: Fetch kubeconfig
         run: |
-          set -euo pipefail
-          if [[ -z "${INSTANCE_IP:-}" ]]; then
-            echo "INSTANCE_IP not set; aborting"
-            exit 1
-          fi
-          echo "Waiting for SSH on $INSTANCE_IP..."
-          retries=20
-          count=0
-          until ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem -q ubuntu@"$INSTANCE_IP" 'echo ok' >/dev/null 2>&1; do
-            count=$((count+1))
-            if [ $count -ge $retries ]; then
-              echo "SSH still not available after $retries attempts"
-              exit 1
-            fi
-            sleep 10
-            echo "retry $count/$retries..."
-          done
-          echo "SSH is available on $INSTANCE_IP"
+          mkdir -p ~/.kube
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
+            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sed -i "s/127.0.0.1/$INSTANCE_IP/" ~/.kube/config
+          chmod 600 ~/.kube/config
 
-      # Copy kubeconfig from EC2 (retry if scp fails)
-      - name: Fetch and fix kubeconfig from EC2
+      - name: Verify Cluster
+        run: kubectl get nodes --kubeconfig ~/.kube/config
+
+      - name: Deploy App
         env:
-          INSTANCE_IP: ${{ env.INSTANCE_IP }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
         run: |
-          set -euo pipefail
-          KUBECONFIG_DIR="$HOME/.kube"
-          mkdir -p "$KUBECONFIG_DIR"
-          KUBECONFIG_PATH="$KUBECONFIG_DIR/config"
+          kubectl set image deployment/weather-app-deployment \
+            weather-app=$IMAGE_TAG -n weather-app --kubeconfig ~/.kube/config
+          kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=120s --kubeconfig ~/.kube/config
+          kubectl get svc -n weather-app --kubeconfig ~/.kube/config
 
-          retries=8
-          count=0
-          echo "Attempting to SCP k3s kubeconfig from ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml ..."
-          until scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@"$INSTANCE_IP":/etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH" >/dev/null 2>&1; do
-            count=$((count+1))
-            if [ $count -ge $retries ]; then
-              echo "Failed to copy kubeconfig after $retries attempts"
-              ls -la "$KUBECONFIG_DIR" || true
-              echo "Attempting to fetch /var/lib/rancher/k3s/agent/kubelet.kubeconfig as alternate..."
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@"$INSTANCE_IP":/var/lib/rancher/k3s/agent/kubelet.kubeconfig "$KUBECONFIG_PATH" && break || true
-              exit 1
-            fi
-            echo "scp attempt $count/$retries failed; sleeping 10s..."
-            sleep 10
-          done
-
-          # Replace local loopback addresses inside kubeconfig with public IP so remote runner can contact API server
-          sed -i "s/127.0.0.1/${INSTANCE_IP}/g" "$KUBECONFIG_PATH" || true
-          sed -i "s/localhost/${INSTANCE_IP}/g" "$KUBECONFIG_PATH" || true
-
-          chmod 600 "$KUBECONFIG_PATH"
-          echo "Kubeconfig fetched and patched: $KUBECONFIG_PATH"
-          echo "--- kubeconfig head ---"
-          head -n 20 "$KUBECONFIG_PATH" || true
-          echo "--- kubeconfig tail ---"
-          tail -n 20 "$KUBECONFIG_PATH" || true
-
-      # Wait & verify kubectl can access the cluster
-      - name: Verify kubectl connectivity
-        env:
-          INSTANCE_IP: ${{ env.INSTANCE_IP }}
-        run: |
-          set -euo pipefail
-          KUBECONFIG_PATH="$HOME/.kube/config"
-          retries=10
-          count=0
-          until kubectl --kubeconfig "$KUBECONFIG_PATH" get nodes >/dev/null 2>&1; do
-            count=$((count+1))
-            if [ $count -ge $retries ]; then
-              echo "kubectl cannot reach the cluster after $retries attempts"
-              kubectl --kubeconfig "$KUBECONFIG_PATH" config view || true
-              exit 1
-            fi
-            echo "kubectl unreachable, attempt $count/$retries; sleeping 10s..."
-            sleep 10
-          done
-          echo "kubectl is connected to the cluster"
-          kubectl --kubeconfig "$KUBECONFIG_PATH" get nodes -o wide
-
-      # Deploy application (use image tag from build job)
-      - name: Deploy to Kubernetes
-        env:
-          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-          KUBECONFIG: ${{ github.workspace }}/.kube/config
-        run: |
-          set -euo pipefail
-          KUBECONFIG_PATH="$HOME/.kube/config"
-          echo "Deploying image: $IMAGE_TAG"
-          # ensure deployment exists; this command will fail if resource or namespace missing
-          kubectl --kubeconfig "$KUBECONFIG_PATH" set image deployment/weather-app-deployment \
-            weather-app=$IMAGE_TAG -n weather-app
-          kubectl --kubeconfig "$KUBECONFIG_PATH" rollout status deployment/weather-app-deployment -n weather-app --timeout=180s
-          kubectl --kubeconfig "$KUBECONFIG_PATH" get svc -n weather-app
-
-  # -------------------------
-  # 4. Notifications
-  # -------------------------
+  # 4. Notify
   notify:
     runs-on: ubuntu-latest
-    needs: [code-quality, build-and-push, deploy]
+    needs: [code-quality, build, deploy]
     if: always()
     steps:
-      - name: Send Slack notification
-        uses: 8398a7/action-slack@v4
+      - uses: 8398a7/action-slack@v4
         with:
           status: ${{ job.status }}
           channel: '#ci-cd-notifications'
