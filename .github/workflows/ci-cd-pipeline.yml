@@ -102,7 +102,7 @@ jobs:
         with:
           terraform_version: 1.6.0
 
-      # Configure AWS
+      # Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -110,9 +110,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Terraform apply + capture EC2 IP
+      # Terraform apply and capture EC2 IP
       - name: Terraform Apply & Capture EC2 IP
-        working-directory: ./infra/terraform   # <-- must contain your .tf files
+        working-directory: ./infra/terraform
         run: |
           terraform init
           terraform apply -auto-approve
@@ -136,32 +136,23 @@ jobs:
       - name: Debug INSTANCE_IP
         run: echo "INSTANCE_IP=$INSTANCE_IP"
 
-      # Setup kubeconfig
+      # Setup kubeconfig from EC2
       - name: Setup kubeconfig
         run: |
-          # Use explicit path
           KUBECONFIG_DIR="$HOME/.kube"
           mkdir -p "$KUBECONFIG_DIR"
           KUBECONFIG_PATH="$KUBECONFIG_DIR/config"
 
-          # Ensure INSTANCE_IP is set
-          echo "INSTANCE_IP=$INSTANCE_IP"
-
-          # Copy kubeconfig from EC2
+          echo "Connecting to $INSTANCE_IP to copy kubeconfig..."
           scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
             ubuntu@"$INSTANCE_IP":/etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH"
 
-          # Replace localhost with public IP
           sed -i "s/127.0.0.1/$INSTANCE_IP/" "$KUBECONFIG_PATH"
-
-          # Secure kubeconfig
           chmod 600 "$KUBECONFIG_PATH"
 
-          # Test kubectl
           kubectl --kubeconfig "$KUBECONFIG_PATH" config current-context
         env:
           INSTANCE_IP: ${{ env.INSTANCE_IP }}
-
 
       # Deploy app to Kubernetes
       - name: Deploy to Kubernetes
@@ -173,9 +164,9 @@ jobs:
           kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
           kubectl get svc -n weather-app
 
- 
+  # =========================
   # 4. Slack Notifications
-  
+  # =========================
   notify:
     runs-on: ubuntu-latest
     needs: [code-quality, build-and-push, deploy]
