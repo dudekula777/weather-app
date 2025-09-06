@@ -136,13 +136,6 @@ jobs:
       - name: Debug INSTANCE_IP
         run: echo "INSTANCE_IP=$INSTANCE_IP"
 
-      # Test SSH connectivity
-      - name: SSH into EC2
-        run: |
-          echo "Connecting to $INSTANCE_IP..."
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
-          "echo 'SSH connection successful!' && hostname && uptime"
-
       # Setup kubeconfig
       - name: Setup kubeconfig
         run: |
