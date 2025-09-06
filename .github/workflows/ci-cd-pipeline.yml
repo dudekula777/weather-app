@@ -111,11 +111,13 @@ jobs:
           aws-region: us-east-1
 
       # Step 1: Terraform apply and capture IP
+      # 1️⃣ Terraform apply and capture IP
       - name: Terraform Apply & Capture EC2 IP
-        working-directory: ./infra/terraform  # <-- your terraform files must be here
+        working-directory: ./infra/terraform  # <-- your terraform .tf files
         run: |
           terraform init
           terraform apply -auto-approve
+          # Capture public IP
           IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
           echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
           echo "✅ EC2 Public IP: $IP"
@@ -125,20 +127,20 @@ jobs:
           AWS_REGION: us-east-1
           TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
 
-      # Step 2: Setup SSH key (can use INSTANCE_IP now)
+      # 2️⃣ Setup SSH key
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
           chmod 600 ~/.ssh/my-ec2-key.pem
 
-      # Step 3: Debug INSTANCE_IP
+      # 3️⃣ Debug to confirm IP
       - name: Debug INSTANCE_IP
         run: echo "INSTANCE_IP=$INSTANCE_IP"
         env:
           INSTANCE_IP: ${{ env.INSTANCE_IP }}
 
-      # Step 4: Setup kubeconfig
+      # 4️⃣ Copy kubeconfig from EC2
       - name: Setup kubeconfig
         run: |
           echo "Using INSTANCE_IP=$INSTANCE_IP"
@@ -155,6 +157,7 @@ jobs:
           kubectl --kubeconfig "$KUBECONFIG_PATH" config current-context
         env:
           INSTANCE_IP: ${{ env.INSTANCE_IP }}
+
 
 
       # Deploy app to Kubernetes
