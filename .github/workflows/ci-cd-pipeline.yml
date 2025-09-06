@@ -1,11 +1,13 @@
 name: CI/CD Pipeline
 
+# triggers
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
 
+# minimal permissions (allow GHCR push via secret PAT)
 permissions:
   contents: read
   packages: write
@@ -16,7 +18,7 @@ env:
 
 jobs:
   # -------------------------
-  # 1. Code Quality & Testing
+  # 1. Code quality and testing
   # -------------------------
   code-quality:
     name: Code Quality and Testing
@@ -60,7 +62,7 @@ jobs:
           path: coverage/
 
   # -------------------------
-  # 2. Build & Push Docker Image
+  # 2. Build & push Docker image
   # -------------------------
   build-and-push:
     name: Build and Push Docker Image
@@ -85,7 +87,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT }}
 
-      - id: set_tag
+      - name: Extract metadata for Docker (tags/labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=ref,event=branch
+
+      - name: Set image tag
+        id: set_tag
         run: |
           echo "image_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
 
@@ -94,7 +106,8 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ steps.set_tag.outputs.image_tag }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
   # -------------------------
   # 3. Deploy to Kubernetes
@@ -130,37 +143,43 @@ jobs:
 
       - name: Terraform Plan
         working-directory: ./infra/terraform
+        run: terraform plan -out=tfplan
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
           TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
-        run: terraform plan -out=tfplan
 
       - name: Terraform Apply & Capture EC2 IP
         working-directory: ./infra/terraform
+        run: |
+          set -euo pipefail
+          terraform apply -auto-approve -input=false
+          
+          # Capture only the clean IP
+          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n' | tr -d '[:space:]')
+          if [[ -z "$IP" ]]; then
+            echo "❌ ERROR: instance_public_ip output is empty"
+            exit 1
+          fi
+          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
+          echo "✅ EC2 Public IP: $IP"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
           TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
-        run: |
-          set -euo pipefail
-          terraform apply -auto-approve -input=false
-          IP=$(terraform output -raw instance_public_ip)
-          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
-          echo "✅ EC2 Public IP: $IP"
 
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/my-ec2-key.pem
-          chmod 600 ~/.ssh/my-ec2-key.pem
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
+          chmod 400 ~/.ssh/my-ec2-key.pem   
 
       - name: Test SSH Connection
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
-              "echo 'SSH connection successful!' && hostname && uptime"
+          "echo 'SSH connection successful!' && hostname && uptime"
 
       - name: Configure Kubernetes (copy kubeconfig from EC2)
         run: |
@@ -168,6 +187,9 @@ jobs:
           scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
             ubuntu@$INSTANCE_IP:~/.kube/config ~/.kube/config
           chmod 600 ~/.kube/config
+
+      - name: Set kubectl context
+        run: kubectl config current-context
 
       - name: Deploy to Kubernetes
         env:
@@ -177,8 +199,10 @@ jobs:
           kubectl set image deployment/weather-app-deployment \
             weather-app=$IMAGE_TAG \
             -n weather-app
-          kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=180s
-          kubectl get svc -n weather-app
+          kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
+
+      - name: Verify service
+        run: kubectl get svc -n weather-app
 
   # -------------------------
   # 4. Notifications
@@ -190,7 +214,7 @@ jobs:
     if: always()
 
     steps:
-      - name: Send Slack notification
+      - name: Send notification
         uses: 8398a7/action-slack@v4
         with:
           status: ${{ job.status }}
