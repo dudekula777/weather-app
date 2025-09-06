@@ -112,7 +112,7 @@ jobs:
 
       # Terraform apply + capture EC2 IP
       - name: Terraform Apply & Capture EC2 IP
-        working-directory: ./infra/terraform
+        working-directory: ./infra/terraform   # <-- must contain your .tf files
         run: |
           terraform init
           terraform apply -auto-approve
@@ -124,7 +124,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
           TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
-
+          
       # Setup SSH key
       - name: Setup SSH key
         run: |
@@ -145,6 +145,7 @@ jobs:
           sed -i "s/127.0.0.1/$INSTANCE_IP/" ~/.kube/config
           chmod 600 ~/.kube/config
           kubectl config current-context
+
 
       # Deploy app to Kubernetes
       - name: Deploy to Kubernetes
