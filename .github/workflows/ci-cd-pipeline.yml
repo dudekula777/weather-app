@@ -124,7 +124,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
           TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
-          
+
       # Setup SSH key
       - name: Setup SSH key
         run: |
@@ -139,12 +139,17 @@ jobs:
       # Setup kubeconfig
       - name: Setup kubeconfig
         run: |
-          mkdir -p ~/.kube
+          KUBECONFIG_DIR="$HOME/.kube"
+          mkdir -p "$KUBECONFIG_DIR"
+          KUBECONFIG_PATH="$KUBECONFIG_DIR/config"
+
           scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
-            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml ~/.kube/config
-          sed -i "s/127.0.0.1/$INSTANCE_IP/" ~/.kube/config
-          chmod 600 ~/.kube/config
-          kubectl config current-context
+            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH"
+
+          sed -i "s/127.0.0.1/$INSTANCE_IP/" "$KUBECONFIG_PATH"
+          chmod 600 "$KUBECONFIG_PATH"
+          kubectl --kubeconfig "$KUBECONFIG_PATH" config current-context
+
 
 
       # Deploy app to Kubernetes
