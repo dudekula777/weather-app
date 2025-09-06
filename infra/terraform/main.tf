@@ -27,29 +27,11 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-resource "aws_security_group" "minikube_sg" {
-  name        = "minikube-sg"
-  description = "Allow Kubernetes traffic"
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 30000
-    to_port     = 32767
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+# Use existing security group instead of creating new
+data "aws_security_group" "minikube_sg" {
+  filter {
+    name   = "group-name"
+    values = ["minikube-sg"]
   }
 }
 
@@ -57,7 +39,7 @@ resource "aws_instance" "minikube" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t3.medium"
   key_name               = data.aws_key_pair.my_key.key_name
-  vpc_security_group_ids = [aws_security_group.minikube_sg.id]
+  vpc_security_group_ids = [data.aws_security_group.minikube_sg.id]
 
   tags = {
     Name = "minikube-server"
