@@ -158,21 +158,26 @@ jobs:
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply & Capture EC2 IP
-        working-directory: ./infra/terraform   
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-1
-          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
+        working-directory: ./infra/terraform   # adjust path if needed
         run: |
           set -euo pipefail
           terraform init -input=false
           terraform apply -auto-approve -input=false
-
-          # capture output cleanly
+          
+          # cleanly capture just the IP
           IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
+          
+          if [[ -z "$IP" ]]; then
+            echo "❌ ERROR: instance_public_ip output is empty"
+            exit 1
+          fi
+
           echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
           echo "✅ EC2 Public IP: $IP"
+
+      - name: Test SSH Connection
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP "echo 'SSH connection successful!' && hostname && uptime"
 
 
       - name: Setup SSH
