@@ -179,11 +179,18 @@ jobs:
           echo "Connecting to $INSTANCE_IP..."
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
           "echo 'SSH connection successful!' && hostname && uptime"
-            
+          
+      - name: Get instance IP
+        run: |
+          IP=$(terraform output -raw instance_public_ip | tr -d '\n')
+          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV    
+
       - name: SSH into EC2
         run: |
+          echo "Connecting to $INSTANCE_IP..."
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
           "echo 'SSH connection successful!' && hostname && uptime"
+
 
       - name: Configure Kubernetes (copy kubeconfig from EC2)
         env:
