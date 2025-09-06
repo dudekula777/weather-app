@@ -121,6 +121,9 @@ jobs:
   # -------------------------
   # Deploy to Kubernetes
   # -------------------------
+    # -------------------------
+  # Deploy to Kubernetes
+  # -------------------------
   deploy:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
@@ -131,13 +134,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -145,54 +141,80 @@ jobs:
           terraform_version: 1.6.0
 
       - name: Terraform Init
-        working-directory: ./infra/terraform
         run: terraform init
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-1
-
-      - name: Terraform Apply
         working-directory: ./infra/terraform
-        run: terraform apply -auto-approve -input=false
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
+          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
 
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ./infra/terraform
 
-      # Write SSH private key before connecting
+      - name: Terraform Plan
+        working-directory: ./infra/terraform   
+        run: terraform plan -out=tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
+
+      - name: Terraform Apply & Capture EC2 IP
+        working-directory: ./infra/terraform
+        run: |
+          set -euo pipefail
+          terraform apply -auto-approve -input=false
+          
+          # cleanly capture just the IP
+          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
+          if [[ -z "$IP" ]]; then
+            echo "❌ ERROR: instance_public_ip output is empty"
+            exit 1
+          fi
+          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
+          echo "✅ EC2 Public IP: $IP"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
-          chmod 600 ~/.ssh/my-ec2-key.pem
+          chmod 400 ~/.ssh/my-ec2-key.pem   
 
       - name: Test SSH Connection
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
-            "echo 'SSH connection successful!' && hostname && uptime"
+          "echo 'SSH connection successful!' && hostname && uptime"
 
-      - name: Fetch kubeconfig from EC2
+      - name: Configure Kubernetes (copy kubeconfig from EC2)
         run: |
           mkdir -p ~/.kube
           scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
-            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml ~/.kube/config
-          sed -i "s/127.0.0.1/$INSTANCE_IP/" ~/.kube/config
-          chmod 600 ~/.kube/config
+            ubuntu@$INSTANCE_IP:~/.kube/config ~/.kube/config
 
-      - name: Verify kubectl connectivity
-        run: kubectl get nodes
+      - name: Set kubectl context (optional)
+        run: kubectl config current-context
 
-      - name: Deploy to Kubernetes
+      - name: Deploy to Kubernetes (use job output image tag)
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
           echo "Deploying image: $IMAGE_TAG"
           kubectl set image deployment/weather-app-deployment \
-            weather-app=$IMAGE_TAG -n weather-app
+            weather-app=$IMAGE_TAG \
+            -n weather-app
           kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
-          kubectl get svc -n weather-app
+
+      - name: Verify service
+        run: kubectl get svc -n weather-app
+
 
   # -------------------------
   # Notifications
