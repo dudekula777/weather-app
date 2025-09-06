@@ -72,3 +72,13 @@ output "instance_public_ip" {
   value       = aws_instance.minikube.public_ip
   description = "Public IP of the Minikube EC2 instance"
 }
+
+variable "public_key" {
+  description = "Public key content for EC2 key pair"
+  type        = string
+}
+
+resource "aws_key_pair" "deployer" {
+  key_name   = "my-ec2-key"
+  public_key = var.public_key
+}
