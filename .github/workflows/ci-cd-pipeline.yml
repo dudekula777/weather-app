@@ -155,13 +155,10 @@ jobs:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - name: Terraform Apply and Export IP
-      id: tf_apply
+    - name: Terraform Apply & Set EC2 IP
       run: |
         terraform apply -auto-approve
-        IP=$(terraform output -raw instance_public_ip | tr -d '\n')
-        echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
-        echo "Public IP is: $IP"
+        echo "INSTANCE_IP=$(terraform output -raw instance_public_ip | tr -d '\n')" >> $GITHUB_ENV
       working-directory: ./terraform
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -176,20 +173,14 @@ jobs:
 
     - name: Connect to EC2
       shell: bash
-      env:
-        TERRAFORM_CLI_PATH: /home/runner/work/_temp/90cfefcc-eeeb-4952-934d-347ca6dcc7fd/terraform-bin
-        SSH_KEY_PATH: ~/.ssh/my-ec2-key.pem
       run: |
-        # Capture the EC2 public IP from Terraform output
-        INSTANCE_IP=$($TERRAFORM_CLI_PATH output -raw instance_public_ip)
-        
         echo "Connecting to $INSTANCE_IP..."
         
         # Ensure SSH key has proper permissions
-        chmod 600 $SSH_KEY_PATH
+        chmod 600 ~/.ssh/my-ec2-key.pem
 
         # Connect to EC2 and run simple commands
-        ssh -o StrictHostKeyChecking=no -i $SSH_KEY_PATH ubuntu@$INSTANCE_IP \
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
             "echo 'SSH connection successful!' && hostname && uptime"
 
 
