@@ -178,7 +178,7 @@ jobs:
       run: |
         echo "Connecting to $INSTANCE_IP..."
         ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
-          "echo 'SSH connection successful!' && hostname && uptime"
+        "echo 'SSH connection successful!' && hostname && uptime"
 
     - name: Configure Kubernetes (copy kubeconfig from EC2)
       run: |
