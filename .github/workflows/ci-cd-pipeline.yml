@@ -147,13 +147,15 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
         working-directory: ./infra/terraform
-        
+
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
-        working-directory: ./infra/terraform
+        working-directory: ./terraform   # or ./infra/terraform if that's your structure
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
+        run: terraform plan -out=tfplan
 
       - name: Terraform Apply and output instance IP
         id: tf_apply
