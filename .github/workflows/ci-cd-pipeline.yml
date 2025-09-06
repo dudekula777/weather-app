@@ -139,16 +139,41 @@ jobs:
         run: echo "INSTANCE_IP=$INSTANCE_IP"
         env:
           INSTANCE_IP: ${{ env.INSTANCE_IP }}
+      - name: Setup kubeconfig
+        run: |
+          echo "Using INSTANCE_IP=$INSTANCE_IP"
+          
+          KUBECONFIG_DIR="$HOME/.kube"
+          mkdir -p "$KUBECONFIG_DIR"
+          KUBECONFIG_PATH="$KUBECONFIG_DIR/config"
+
+          # Copy kubeconfig from EC2
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
+            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH"
+
+          # Replace localhost with public IP
+          sed -i "s/127.0.0.1/$INSTANCE_IP/" "$KUBECONFIG_PATH"
+
+          # Secure kubeconfig
+          chmod 600 "$KUBECONFIG_PATH"
+
+          # Test kubectl
+          kubectl --kubeconfig "$KUBECONFIG_PATH" get nodes
+        env:
+          INSTANCE_IP: ${{ env.INSTANCE_IP }}
+
 
       # Deploy app to Kubernetes
       - name: Deploy to Kubernetes
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          KUBECONFIG: $HOME/.kube/config
         run: |
-          kubectl set image deployment/weather-app-deployment \
+          kubectl --kubeconfig $KUBECONFIG set image deployment/weather-app-deployment \
             weather-app=$IMAGE_TAG -n weather-app
-          kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
-          kubectl get svc -n weather-app
+          kubectl --kubeconfig $KUBECONFIG rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
+          kubectl --kubeconfig $KUBECONFIG get svc -n weather-app
+
 
   # =========================
   # 4. Slack Notifications
