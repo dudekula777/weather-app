@@ -16,19 +16,25 @@ env:
 
 jobs:
   # -------------------------
-  # Code Quality
+  # Code Quality & Testing
   # -------------------------
   code-quality:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
-      - run: npm ci
-      - run: npm run test:coverage
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@master
         env:
@@ -40,6 +46,7 @@ jobs:
             -Dsonar.organization=dudekula777
             -Dsonar.projectName=weather-app
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         with:
@@ -55,17 +62,25 @@ jobs:
     outputs:
       image_tag: ${{ steps.set_tag.outputs.image_tag }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v2
-      - uses: docker/login-action@v2
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v2
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT }}
+
       - id: set_tag
         run: |
           echo "image_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
-      - uses: docker/build-push-action@v4
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
         with:
           context: .
           push: true
@@ -78,33 +93,34 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       # Setup Terraform
       - uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.6.0
-      - run: terraform init
+
+      - name: Terraform Init
+        run: terraform init
         working-directory: ./terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
-      - run: terraform apply -auto-approve
+
+      - name: Terraform Apply & Capture EC2 IP
+        run: |
+          terraform apply -auto-approve
+          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
+          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
+          echo "EC2 Public IP: $IP"
         working-directory: ./terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
           TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
-
-      # Capture EC2 IP
-      - name: Set EC2 IP
-        run: |
-          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
-          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
-          echo "EC2 IP: $IP"
-        working-directory: ./terraform
 
       # Setup SSH key
       - name: Setup SSH key
@@ -132,7 +148,7 @@ jobs:
           kubectl config view
           kubectl config current-context
 
-      # Deploy Docker image
+      # Deploy Docker image to Kubernetes
       - name: Deploy to Kubernetes
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
