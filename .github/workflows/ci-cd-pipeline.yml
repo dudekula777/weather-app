@@ -154,14 +154,20 @@ jobs:
         working-directory: ./infra/terraform
         run: |
           set -euo pipefail
+
+          # Apply Terraform
+          terraform init -input=false
           terraform apply -auto-approve -input=false
-          
-          # Capture only the clean IP
-          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n' | tr -d '[:space:]')
+
+          # Capture EC2 public IP
+          IP=$(terraform output -raw instance_public_ip | tr -d '[:space:]')
+
           if [[ -z "$IP" ]]; then
             echo "❌ ERROR: instance_public_ip output is empty"
             exit 1
           fi
+
+          # Export IP to GitHub Actions
           echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
           echo "✅ EC2 Public IP: $IP"
         env:
