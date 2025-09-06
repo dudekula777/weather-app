@@ -138,83 +138,53 @@ jobs:
           terraform_version: 1.6.0
 
       - name: Terraform Init
+        working-directory: ./infra/terraform
         run: terraform init
-        working-directory: ./infra/terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          
-      - name: Terraform Validate
-        run: terraform validate
-        working-directory: ./infra/terraform
-
-      - name: Terraform Plan
-        working-directory: ./infra/terraform   
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-1
-          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
-        run: terraform plan -out=tfplan
 
       - name: Terraform Apply & Capture EC2 IP
-        working-directory: ./infra/terraform   # adjust path if needed
+        working-directory: ./infra/terraform
         run: |
           set -euo pipefail
-          terraform init -input=false
           terraform apply -auto-approve -input=false
-          
-          # cleanly capture just the IP
           IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
-          
-          if [[ -z "$IP" ]]; then
-            echo "❌ ERROR: instance_public_ip output is empty"
-            exit 1
-          fi
-
           echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
           echo "✅ EC2 Public IP: $IP"
 
-      - name: Test SSH Connection
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP "echo 'SSH connection successful!' && hostname && uptime"
-
-
+      # Write SSH private key before connecting
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
-          chmod 400 ~/.ssh/my-ec2-key.pem   
-      
-      - name: SSH into EC2
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@${{ steps.terraform.outputs.instance_public_ip }} \
-          'echo "Connected successfully!" && hostname && uptime'
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP "echo 'SSH connection successful!'"
+          chmod 600 ~/.ssh/my-ec2-key.pem
 
-      - name: Configure Kubernetes (copy kubeconfig from EC2)
-        env:
-          TF_INSTANCE_IP: ${{ steps.tf_apply.outputs.instance_public_ip }}
+      - name: Test SSH Connection
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
+            "echo 'SSH connection successful!' && hostname && uptime"
+
+      - name: Fetch kubeconfig from EC2
         run: |
           mkdir -p ~/.kube
-          scp -o StrictHostKeyChecking=no -i "${{ secrets.SSH_PRIVATE_KEY }}" \
-            ec2-user@"$TF_INSTANCE_IP":~/.kube/config ~/.kube/config
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
+            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sed -i "s/127.0.0.1/$INSTANCE_IP/" ~/.kube/config
+          chmod 600 ~/.kube/config
 
-      - name: Set kubectl context (optional)
-        run: kubectl config current-context
+      - name: Verify kubectl connectivity
+        run: kubectl get nodes
 
-      - name: Deploy to Kubernetes (use job output image tag)
+      - name: Deploy to Kubernetes
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
           echo "Deploying image: $IMAGE_TAG"
           kubectl set image deployment/weather-app-deployment \
-            weather-app=$IMAGE_TAG \
-            -n weather-app
+            weather-app=$IMAGE_TAG -n weather-app
           kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
-
-      - name: Verify service
-        run: kubectl get svc -n weather-app
+          kubectl get svc -n weather-app
 
   # -------------------------
   # Notifications
