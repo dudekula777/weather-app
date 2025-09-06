@@ -181,24 +181,6 @@ jobs:
           echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
           chmod 600 ~/.ssh/my-ec2-key.pem
 
-      # -------------------------
-      # Connect to EC2
-      # -------------------------
-      - name: Connect to EC2
-        shell: bash
-        run: |
-          echo "Connecting to $INSTANCE_IP..."
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
-            "echo 'SSH connection successful!' && hostname && uptime"
-
-      # -------------------------
-      # Copy kubeconfig from EC2
-      # -------------------------
-      - name: Configure Kubernetes
-        run: |
-          mkdir -p ~/.kube
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
-            ubuntu@$INSTANCE_IP:~/.kube/config ~/.kube/config
 
       - name: Set kubectl context
         run: kubectl config current-context
