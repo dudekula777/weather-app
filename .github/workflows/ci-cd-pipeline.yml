@@ -162,9 +162,9 @@ jobs:
           kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
           kubectl get svc -n weather-app
 
-  # =========================
+ 
   # 4. Slack Notifications
-  # =========================
+  
   notify:
     runs-on: ubuntu-latest
     needs: [code-quality, build-and-push, deploy]
