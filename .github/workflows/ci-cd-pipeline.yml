@@ -176,10 +176,9 @@ jobs:
       
       - name: SSH into EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@${{ steps.terraform.outputs.instance_public_ip }} \
-          'echo "Connected successfully!" && hostname && uptime'
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP "echo 'SSH connection successful!'"
-
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
+          "echo 'SSH connection successful!' && hostname && uptime"
+          
       - name: Configure Kubernetes (copy kubeconfig from EC2)
         env:
           TF_INSTANCE_IP: ${{ steps.tf_apply.outputs.instance_public_ip }}
