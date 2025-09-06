@@ -170,15 +170,15 @@ jobs:
 
       - name: Setup SSH
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
-          chmod 400 ~/.ssh/my-ec2-key.pem   
-      
+          echo "Connecting to $INSTANCE_IP..."
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
+          "echo 'SSH connection successful!' && hostname && uptime"
+            
       - name: SSH into EC2
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
           "echo 'SSH connection successful!' && hostname && uptime"
-          
+
       - name: Configure Kubernetes (copy kubeconfig from EC2)
         env:
           TF_INSTANCE_IP: ${{ steps.tf_apply.outputs.instance_public_ip }}
