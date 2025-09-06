@@ -1,13 +1,15 @@
 name: CI/CD Pipeline
 
-# triggers
+# -------------------------
+# Triggers
+# -------------------------
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
 
-# minimal permissions (allow GHCR push via secret PAT)
+# Minimal permissions (allow GHCR push via secret PAT)
 permissions:
   contents: read
   packages: write
@@ -70,7 +72,6 @@ jobs:
     needs: code-quality
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
 
-    # expose job output for deploy job
     outputs:
       image_tag: ${{ steps.set_tag.outputs.image_tag }}
 
@@ -102,7 +103,7 @@ jobs:
         run: |
           echo "image_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
 
-      - name: Print image tag (safe)
+      - name: Print image tag
         run: echo "Docker image tag is ${{ steps.set_tag.outputs.image_tag }}"
 
       - name: Build and push Docker image
@@ -114,9 +115,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Show pushed tags (safe)
-        run: |
-          echo "Tags pushed: ${{ steps.meta.outputs.tags }}"
+      - name: Show pushed tags
+        run: echo "Tags pushed: ${{ steps.meta.outputs.tags }}"
 
   # -------------------------
   # Deploy to Kubernetes
@@ -129,79 +129,78 @@ jobs:
     environment: production
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
-      with:
-        terraform_version: 1.6.0
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.0
 
-    - name: Terraform Init
-      run: terraform init
-      working-directory: ./terraform
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ./terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - name: Terraform Validate
-      run: terraform validate
-      working-directory: ./terraform
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ./terraform
 
-    - name: Terraform Plan
-      run: terraform plan -out=tfplan -var="public_key=${{ secrets.SSH_PUBLIC_KEY }}"
-      working-directory: ./terraform
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan -var="public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+        working-directory: ./terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - name: Terraform Apply and export IP
-      id: tf_apply
-      run: |
-        terraform apply -auto-approve
-        IP=$(terraform output -raw instance_public_ip | tr -d '\n')
-        echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
-        echo "instance_ip=$IP" >> $GITHUB_OUTPUT
-      working-directory: ./terraform
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
+      - name: Terraform Apply and export IP
+        id: tf_apply
+        run: |
+          terraform apply -auto-approve
+          IP=$(terraform output -raw instance_public_ip | tr -d '\n')
+          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
+          echo "instance_ip=$IP" >> $GITHUB_OUTPUT
+        working-directory: ./terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
 
-    - name: Setup SSH key
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
-        chmod 600 ~/.ssh/my-ec2-key.pem
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
+          chmod 600 ~/.ssh/my-ec2-key.pem
 
-    - name: SSH into EC2
-      run: |
-        echo "Connecting to $INSTANCE_IP..."
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
-        "echo 'SSH connection successful!' && hostname && uptime"
+      - name: SSH into EC2
+        run: |
+          echo "Connecting to $INSTANCE_IP..."
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
+          "echo 'SSH connection successful!' && hostname && uptime"
 
-    - name: Configure Kubernetes (copy kubeconfig from EC2)
-      run: |
-        mkdir -p ~/.kube
-        scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
-          ubuntu@$INSTANCE_IP:~/.kube/config ~/.kube/config
+      - name: Configure Kubernetes (copy kubeconfig from EC2)
+        run: |
+          mkdir -p ~/.kube
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
+            ubuntu@$INSTANCE_IP:~/.kube/config ~/.kube/config
 
-    - name: Set kubectl context (optional)
-      run: kubectl config current-context
+      - name: Set kubectl context
+        run: kubectl config current-context
 
-    - name: Deploy to Kubernetes (use job output image tag)
-      env:
-        IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-      run: |
-        echo "Deploying image: $IMAGE_TAG"
-        kubectl set image deployment/weather-app-deployment \
-          weather-app=$IMAGE_TAG \
-          -n weather-app
-        kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
+      - name: Deploy to Kubernetes (use job output image tag)
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          echo "Deploying image: $IMAGE_TAG"
+          kubectl set image deployment/weather-app-deployment \
+            weather-app=$IMAGE_TAG \
+            -n weather-app
+          kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=180s
 
-    - name: Verify service
-      run: kubectl get svc -n weather-app
-
+      - name: Verify service
+        run: kubectl get svc -n weather-app
 
   # -------------------------
   # Notifications
@@ -219,5 +218,3 @@ jobs:
           status: ${{ job.status }}
           channel: '#ci-cd-notifications'
           webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
