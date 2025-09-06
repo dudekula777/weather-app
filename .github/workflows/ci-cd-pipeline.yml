@@ -158,7 +158,7 @@ jobs:
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply & Capture EC2 IP
-        working-directory: ./terraform   # adjust if your folder is infra/terraform
+        working-directory: ./infra/terraform   
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
