@@ -139,23 +139,29 @@ jobs:
       # Setup kubeconfig
       - name: Setup kubeconfig
         run: |
+          # Use explicit path
           KUBECONFIG_DIR="$HOME/.kube"
           mkdir -p "$KUBECONFIG_DIR"
           KUBECONFIG_PATH="$KUBECONFIG_DIR/config"
 
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
-            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH"
+          # Ensure INSTANCE_IP is set
+          echo "INSTANCE_IP=$INSTANCE_IP"
 
+          # Copy kubeconfig from EC2
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
+            ubuntu@"$INSTANCE_IP":/etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH"
+
+          # Replace localhost with public IP
           sed -i "s/127.0.0.1/$INSTANCE_IP/" "$KUBECONFIG_PATH"
+
+          # Secure kubeconfig
           chmod 600 "$KUBECONFIG_PATH"
+
+          # Test kubectl
           kubectl --kubeconfig "$KUBECONFIG_PATH" config current-context
         env:
           INSTANCE_IP: ${{ env.INSTANCE_IP }}
-      - name: Set INSTANCE_IP
-        run: |
-          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
-          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
-        
+
 
       # Deploy app to Kubernetes
       - name: Deploy to Kubernetes
