@@ -127,7 +127,6 @@ jobs:
     needs: build-and-push
     if: github.ref == 'refs/heads/main'
     environment: production
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -159,13 +158,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       # -------------------------
-      # Terraform Apply + Export EC2 IP
+      # Terraform Apply & Set EC2 IP
       # -------------------------
-      - name: Terraform Apply & Set EC2 IP
+      - name: Terraform Apply & Export EC2 IP
         run: |
           terraform apply -auto-approve
-          echo "INSTANCE_IP=$(terraform output -raw instance_public_ip | tr -d '\n')" >> $GITHUB_ENV
-          echo "Public IP: $INSTANCE_IP"
+          IP=$(terraform output -raw instance_public_ip | tr -d '\r\n')
+          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
+          echo "EC2 Public IP is: $IP"
         working-directory: ./terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -175,15 +175,35 @@ jobs:
       # -------------------------
       # Setup SSH Key
       # -------------------------
-      - name: Setup SSH key
+      - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/my-ec2-key.pem
           chmod 600 ~/.ssh/my-ec2-key.pem
 
+      # -------------------------
+      # Connect to EC2 (Optional Debug)
+      # -------------------------
+      - name: Test EC2 SSH Connection
+        shell: bash
+        run: |
+          echo "Connecting to $INSTANCE_IP..."
+          ping -c 3 $INSTANCE_IP
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
+            "echo 'SSH connection successful!' && hostname && uptime"
 
-      - name: Set kubectl context
-        run: kubectl config current-context
+      # -------------------------
+      # Configure Kubernetes
+      # -------------------------
+      - name: Copy kubeconfig from EC2
+        run: |
+          mkdir -p ~/.kube
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem \
+            ubuntu@$INSTANCE_IP:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sed -i "s/127.0.0.1/$INSTANCE_IP/" ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl config view
+          kubectl config current-context
 
       # -------------------------
       # Deploy Docker image to Kubernetes
@@ -194,14 +214,9 @@ jobs:
         run: |
           echo "Deploying image: $IMAGE_TAG"
           kubectl set image deployment/weather-app-deployment \
-            weather-app=$IMAGE_TAG \
-            -n weather-app
+            weather-app=$IMAGE_TAG -n weather-app
           kubectl rollout status deployment/weather-app-deployment -n weather-app --timeout=90s
-
-      - name: Verify service
-        run: kubectl get svc -n weather-appp
-
-
+          kubectl get svc -n weather-app
 
   # -------------------------
   # Notifications
