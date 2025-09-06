@@ -175,7 +175,7 @@ jobs:
 
       - name: SSH into EC2 
         run: |
-          echo "Connecting to $INSTANCE_IP..."
+          echo "INSTANCE_IP=$IP" >> $GITHUB_ENV
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/my-ec2-key.pem ubuntu@$INSTANCE_IP \
           "echo 'SSH connection successful!' && hostname && uptime"
 
